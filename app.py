@@ -450,11 +450,4 @@ def update_figure(state_values,month_values):
 # In[16]:
 
 
-app.run_server(debug=True, use_reloader=False)  # Turn off reloader if inside Jupyter
-
-
-# In[ ]:
-
-
-
-
+server = app.run_server(debug=True, use_reloader=False)  # Turn off reloader if inside Jupyter
