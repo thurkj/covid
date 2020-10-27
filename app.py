@@ -131,9 +131,8 @@ server = app.server
 header = html.H1(children="United States Covid-19 Trends (as of " + today + ")")
 
 markdown_text = '''
-### Dash and Markdown
 The following graphs depict select Covid-19 trends by state. 
-Use the filters to choose a subset of states and/or dates to sharpen the analysis. 
+Use the filters to choose a subset of states and time-period to sharpen the analysis. 
 Source: The Atlantic [Covid-19 Tracking Project](https://covidtracking.com)
 '''
 markdown = dcc.Markdown(children=markdown_text)
