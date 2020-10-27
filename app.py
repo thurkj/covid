@@ -126,6 +126,7 @@ df = df.append(df2, ignore_index=True)
 
 
 app = dash.Dash()
+server = app.server
 
 header = html.H1(children="United States Covid-19 Trends (as of " + today + ")")
 
@@ -450,4 +451,4 @@ def update_figure(state_values,month_values):
 # In[16]:
 
 
-server = app.run_server(debug=False, use_reloader=False)  # Turn off reloader if inside Jupyter
+app.run_server(debug=True)
