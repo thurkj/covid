@@ -450,5 +450,5 @@ def update_figure(state_values,month_values):
 
 # In[16]:
 
-
-app.run_server(debug=True)
+if __name__ == '__main__':
+    app.run_server(debug=True)
