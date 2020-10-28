@@ -130,6 +130,7 @@ df.tail()
 
 
 app = dash.Dash()
+server = app.server
 
 header = html.H1(children="United States Covid-19 Trends (as of " + today + ")")
 
@@ -550,14 +551,12 @@ def update_figure(state_values,normalization_values,month_values):
     return fig
 
 
-# In[ ]:
+# In[13]:
 
 
 if __name__ == '__main__':
-    app.run_server(debug=True, use_reloader=False)  # Turn off reloader if inside Jupyter
+    app.run_server(debug=True)
 
-
-# In[ ]:
 
 
 
