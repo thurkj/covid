@@ -11,12 +11,12 @@ import plotly.graph_objects as go  # lower-level plotly module with more functio
 import pandas_datareader as pdr    # we are grabbing the data and wb functions from the package
 import datetime as dt              # for time and date
 import requests                    # api module
-#from ipywidgets import widgets     # interactive graphs
+import plotly.io as pio
 
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
-from dash.dependencies import Input, Output, State
+from dash.dependencies import Input, Output
 
 
 # In[2]:
@@ -26,6 +26,27 @@ today = dt.datetime.now().strftime('%B %d, %Y')  # today's date. this will be us
 
 
 # In[3]:
+
+
+url = 'https://api.census.gov/data/2019/pep/population?get=NAME,POP&for=state:*'
+    
+response = requests.get(url)
+population = pd.read_json(response.text)  # convert to dataframe
+population.head()
+
+population.rename(columns=population.iloc[0],inplace=True)
+population.drop(0,inplace=True)
+population.drop(['state'], axis=1,inplace=True)
+
+abbrev = pd.read_csv('state_abbrev.csv',header=None)  # convert to dataframe
+abbrev.rename(columns={0:'NAME',1:'state'},inplace=True)
+
+population = population.merge(abbrev,on='NAME',how='outer')
+population.drop(['NAME'], axis=1,inplace=True)
+population['POP'] = population.POP.astype(float)
+
+
+# In[4]:
 
 
 url = 'https://api.covidtracking.com/v1/states/daily.json'
@@ -49,12 +70,6 @@ else:
     print('Server busy')
 
 
-# In[4]:
-
-
-covid.tail()
-
-
 # In[5]:
 
 
@@ -64,14 +79,8 @@ covid.dtypes
 # In[6]:
 
 
-covid['pos_rate'] = 100*(covid['positiveTestsViral']+covid['positiveTestsAntigen'])/(covid['totalTestsPeopleViral']+ covid['totalTestsAntigen'])
 covid['date'] = pd.to_datetime(covid['date'], format='%Y%m%d')
 covid['month'] = covid['date'].dt.strftime('%B %Y') 
-covid.head()
-
-
-# In[7]:
-
 
 covid.drop(covid[covid['state'] == "AS"].index, inplace=True)         # Drop American Samoa
 covid.drop(covid[covid['date'] < '2020-03-01'].index, inplace=True)   # Drop January and February when there are few cases
@@ -79,66 +88,63 @@ covid.drop(covid[covid['date'] < '2020-03-01'].index, inplace=True)   # Drop Jan
 months = covid['month'].unique().tolist()
 months.reverse()
 
-# Look only at Texas, Florida, Georgia, and Minnesota
-#covid.drop(covid[(covid['state'] != "TX") & (covid['state'] != "FL") & (covid['state'] != "MN") & (covid['state'] != "GA")].index, inplace=True)
 
-df_positive = covid.pivot(index='date',columns='state',values='positive')
+# In[7]:
 
-df_curhospital = covid.pivot(index='date',columns='state',values='hospitalizedCurrently')
 
-df_newdeaths = covid.pivot(index='date',columns='state',values='deathIncrease')
+# Prepare for Dash
+df = covid[['date','state','positiveIncrease','hospitalizedIncrease','deathIncrease','death']]
+df.set_index('date',inplace=True)
+df = df.sort_index()
 
-df_totdeaths = covid.pivot(index='date',columns='state',values='deathConfirmed')
+# convert some data to 7-day moving averages
+df_newcases = pd.DataFrame(df.groupby('state')['positiveIncrease'].rolling(7).mean())
+df_newhospitalized = pd.DataFrame(df.groupby('state')['hospitalizedIncrease'].rolling(7).mean())
+df_newdeaths = pd.DataFrame(df.groupby('state')['deathIncrease'].rolling(7).mean())
+
+df_newcases = df_newcases.rename(columns={"positiveIncrease":"new_cases"})
+df_newhospitalized = df_newhospitalized.rename(columns={"hospitalizedIncrease":"new_hospitalized"})
+df_newdeaths = df_newdeaths.rename(columns={"deathIncrease":"new_deaths"})
+
+# Merge results back into original df
+df.reset_index(level=0, drop=False, inplace=True)
+df.set_index(['state','date'],inplace=True)
+df = df.sort_index()
+df = df.merge(df_newcases,left_index=True, right_index=True)
+df = df.merge(df_newhospitalized,left_index=True, right_index=True)
+df = df.merge(df_newdeaths,left_index=True, right_index=True)
+df = df.rename(columns={"death":"total_deaths"})
+
+df.reset_index(level=[0,1], drop=False, inplace=True)
+df = df.merge(population,on='state',how='outer')
+df.dropna(subset=['state'],inplace=True)
+
+df2 = df.copy()
+df2.state = 'All States'
+df = df.append(df2, ignore_index=True)
+
+df.tail()
 
 
 # In[8]:
 
 
-#fig_positive = multi_plot(df_positive, title="COVID-19 Confirmed Cases by State<br> (as of " + today + ")")  
-#fig_curhospital = multi_plot(df_curhospital, title="COVID-19 Hospitalizations by State<br> (as of " + today + ")")  
-#fig_newdeaths = multi_plot(df_newdeaths, title="COVID-19 Deaths by State<br> (as of " + today + ")")    
-#fig_totdeaths = multi_plot(df_totdeaths, title="COVID-19 Deaths by State<br> (as of " + today + ")")  
-
-#fig_positive0 = multi_plot0(df_positive)  
-
-
-# In[9]:
-
-
-import plotly.io as pio
-#pio.write_html(fig_positive, file='covid_positive.html', auto_open=True, config={"displayModeBar": False, "showTips": False, "responsive": True})
-#pio.write_html(fig_curhospital, file='covid_hospital.html', auto_open=True, config={"displayModeBar": False, "showTips": False, "responsive": True})
-#pio.write_html(fig_newdeaths, file='covid_deaths.html', auto_open=True, config={"displayModeBar": False, "showTips": False, "responsive": True})
-#pio.write_html(fig_totdeaths, file='covid_totdeaths.html', auto_open=True, config={"displayModeBar": False, "showTips": False, "responsive": True})
-
-
-# In[10]:
-
-
-# Prepare for Dash
-df = covid[['date','state','positive','hospitalizedCurrently','deathIncrease','death']]
-df2 = df.copy()
-df2.state = 'All States'
-df = df.append(df2, ignore_index=True)
-
-
-# In[11]:
-
-
 app = dash.Dash()
-server = app.server
 
 header = html.H1(children="United States Covid-19 Trends (as of " + today + ")")
 
 markdown_text = '''
-The following graphs depict select Covid-19 trends by state. 
-Use the filters to choose a subset of states and time-period to sharpen the analysis. 
-Source: The Atlantic [Covid-19 Tracking Project](https://covidtracking.com)
+The following graphs depict select Covid-19 trends by state. The graphs are interactive; e.g., hover your cursor over a data-series to observe specific values.
+
+You can also use the filters below to choose a subset of states, periods, and/or standardize the data
+to sharpen your analysis. 
+
+Data Source: The Atlantic [Covid-19 Tracking Project](https://covidtracking.com) 
 '''
 markdown = dcc.Markdown(children=markdown_text)
 
 # Dropdown
-dropdown =  html.P([
+dropdown1 =  html.P([
             html.Label("Select States"),
             dcc.Dropdown(
             id='state-dropdown',
@@ -163,6 +169,22 @@ slider =    html.P([
                         'padding-left' : '100px',
                         'display': 'inline-block'})
     
+dropdown2 =  html.P([
+            html.Label("Present Raw Data or Population-adjusted (per 10,000 residents)"),
+            dcc.Dropdown(
+            id='normalization-dropdown',
+             options=[
+            {'label': 'Raw', 'value': 'Yes'},
+            {'label': 'Per 10,000 Residents', 'value': 'No'},
+            ],
+            value='Yes',
+            multi=False,
+            searchable= True)
+            ], style = {'width' : '80%',
+                        'fontSize' : '20px',
+                        'padding-left' : '100px',
+                        'display': 'inline-block'})
+
 graph1 = dcc.Graph(id="positive", style={'display': 'inline-block'})
 graph2 = dcc.Graph(id="curhospital", style={'display': 'inline-block'})
 graph3 = dcc.Graph(id="newdeaths", style={'display': 'inline-block'})
@@ -171,37 +193,58 @@ graph4 = dcc.Graph(id="totdeaths", style={'display': 'inline-block'})
 row1 = html.Div(children=[graph1, graph2])
 row2 = html.Div(children=[graph3, graph4])
 
-layout = html.Div(children=[header, markdown, dropdown, slider, row1, row2], style={"text-align": "center"})
+layout = html.Div(children=[header, markdown, dropdown1, slider, dropdown2, row1, row2], style={"text-align": "center","width":"95%"})
 app.layout = layout
 
 
-# In[12]:
+# In[9]:
 
+
+#===========================================
+# Daily Positive Cases
+#===========================================
 
 @app.callback(
     Output('positive', 'figure'),
     [Input('state-dropdown', 'value')],
+    [Input('normalization-dropdown', 'value')],
     [Input('slider', 'value')])
     
-# STEP 5: Update Figure
-def update_figure(state_values,month_values):
-
+# Update Figure
+def update_figure(state_values,normalization_values,month_values):
+        
     if state_values is None:
         dff = df.copy()
+        
+        # Check for normalization
+        if normalization_values=='No':
+            dff['new_cases'] = 1e+4*dff['new_cases']/dff['POP'] 
+        
         dff.drop(dff[dff['state'] == "All States"].index, inplace=True)
-        dff = dff.pivot(index='date',columns='state',values='positive')        
+        dff = dff.pivot(index='date',columns='state',values='new_cases')        
     elif state_values[0]=="All States":
         dff = df.copy()
+        
+        # Check for normalization
+        if normalization_values[0]=="No":
+            dff['new_cases'] = 1e+4*dff['new_cases']/dff['POP'] 
+            
         dff.drop(dff[dff['state'] == "All States"].index, inplace=True)
-        dff = dff.pivot(index='date',columns='state',values='positive')
+        dff = dff.pivot(index='date',columns='state',values='new_cases')
     else:
         if not isinstance(state_values, list): state_values = [state_values]
         temp = df.loc[df['state'].isin(state_values)]
-        dff = temp.pivot(index='date',columns='state',values='positive')
-    
+        
+        # Check for normalization
+        if normalization_values[0]=="No":
+            temp['new_cases'] = 1e+4*temp['new_cases']/temp['POP'] 
+            
+        dff = temp.pivot(index='date',columns='state',values='new_cases')        
+
+        
     # Filter by months
     dff = dff[(dff.index >= dt.datetime.strptime(months[month_values[0]],"%B %Y")) & (dff.index <= dt.datetime.strptime(months[month_values[1]],"%B %Y"))]
-    
+        
     fig = go.Figure()
     for column in dff.columns.to_list():
         fig.add_trace(
@@ -211,7 +254,7 @@ def update_figure(state_values,month_values):
                 name = column,
                 mode='lines',
                 opacity=0.8,
-                hovertemplate = '<extra></extra>State: ' + column + '<br>Date: ' + dff.index.strftime('%m/%d') +'<br>Value: %{y:,}'
+                hovertemplate = '<extra></extra>State: ' + column + '<br>Date: ' + dff.index.strftime('%m/%d') +'<br>Value: %{y:.1f}'
             )
         )
       
@@ -243,29 +286,49 @@ def update_figure(state_values,month_values):
     return fig
 
 
-# In[13]:
+# In[10]:
 
+
+#===========================================
+# Currently Hospitalized
+#===========================================
 
 @app.callback(
     Output('curhospital', 'figure'),
     [Input('state-dropdown', 'value')],
+    [Input('normalization-dropdown', 'value')],
     [Input('slider', 'value')])
     
-# STEP 5: Update Figure
-def update_figure(state_values,month_values):
+# Update Figure
+def update_figure(state_values,normalization_values,month_values):
 
     if state_values is None:
         dff = df.copy()
+        
+        # Check for normalization
+        if normalization_values=='No':
+            dff['new_hospitalized'] = 1e+4*dff['new_hospitalized']/dff['POP'] 
+            
         dff.drop(dff[dff['state'] == "All States"].index, inplace=True)
-        dff = dff.pivot(index='date',columns='state',values='hospitalizedCurrently')        
+        dff = dff.pivot(index='date',columns='state',values='new_hospitalized')        
     elif state_values[0]=="All States":
         dff = df.copy()
+        
+        # Check for normalization
+        if normalization_values=='No':
+            dff['new_hospitalized'] = 1e+4*dff['new_hospitalized']/dff['POP'] 
+            
         dff.drop(dff[dff['state'] == "All States"].index, inplace=True)
-        dff = dff.pivot(index='date',columns='state',values='hospitalizedCurrently')
+        dff = dff.pivot(index='date',columns='state',values='new_hospitalized')
     else:
         if not isinstance(state_values, list): state_values = [state_values]
         temp = df.loc[df['state'].isin(state_values)]
-        dff = temp.pivot(index='date',columns='state',values='hospitalizedCurrently')
+        
+        # Check for normalization
+        if normalization_values=='No':
+            temp['new_hospitalized'] = 1e+4*temp['new_hospitalized']/temp['POP'] 
+            
+        dff = temp.pivot(index='date',columns='state',values='new_hospitalized')
     
     # Filter by months
     dff = dff[(dff.index >= dt.datetime.strptime(months[month_values[0]],"%B %Y")) & (dff.index <= dt.datetime.strptime(months[month_values[1]],"%B %Y"))]
@@ -279,14 +342,14 @@ def update_figure(state_values,month_values):
                 name = column,
                 mode='lines',
                 opacity=0.8,
-                hovertemplate = '<extra></extra>State: ' + column + '<br>Date: ' + dff.index.strftime('%m/%d') +'<br>Value: %{y:,}'
+                hovertemplate = '<extra></extra>State: ' + column + '<br>Date: ' + dff.index.strftime('%m/%d') +'<br>Value: %{y:.1f}'
             )
         )
       
     # Update remaining layout properties
     fig.update_layout(
         title={
-                'text': "Current Hospitalizations",
+                'text': "New Hospitalizations",
                 'x':0.5,'xanchor': 'center',
                 'font':{'size': 18}
                 },
@@ -311,29 +374,49 @@ def update_figure(state_values,month_values):
     return fig
 
 
-# In[14]:
+# In[11]:
 
+
+#===========================================
+# Daily Deaths
+#===========================================
 
 @app.callback(
     Output('newdeaths', 'figure'),
     [Input('state-dropdown', 'value')],
+    [Input('normalization-dropdown', 'value')],
     [Input('slider', 'value')])
     
-# STEP 5: Update Figure
-def update_figure(state_values,month_values):
+# Update Figure
+def update_figure(state_values,normalization_values,month_values):
 
     if state_values is None:
         dff = df.copy()
+        
+        # Check for normalization
+        if normalization_values=='No':
+            dff['new_deaths'] = 1e+4*dff['new_deaths']/dff['POP'] 
+            
         dff.drop(dff[dff['state'] == "All States"].index, inplace=True)
-        dff = dff.pivot(index='date',columns='state',values='deathIncrease')        
+        dff = dff.pivot(index='date',columns='state',values='new_deaths')        
     elif state_values[0]=="All States":
         dff = df.copy()
+        
+        # Check for normalization
+        if normalization_values=='No':
+            dff['new_deaths'] = 1e+4*dff['new_deaths']/dff['POP'] 
+            
         dff.drop(dff[dff['state'] == "All States"].index, inplace=True)
-        dff = dff.pivot(index='date',columns='state',values='deathIncrease')
+        dff = dff.pivot(index='date',columns='state',values='new_deaths')
     else:
         if not isinstance(state_values, list): state_values = [state_values]
         temp = df.loc[df['state'].isin(state_values)]
-        dff = temp.pivot(index='date',columns='state',values='deathIncrease')
+        
+        # Check for normalization
+        if normalization_values=='No':
+            temp['new_deaths'] = 1e+4*temp['new_deaths']/temp['POP'] 
+            
+        dff = temp.pivot(index='date',columns='state',values='new_deaths')
     
     # Filter by months
     dff = dff[(dff.index >= dt.datetime.strptime(months[month_values[0]],"%B %Y")) & (dff.index <= dt.datetime.strptime(months[month_values[1]],"%B %Y"))]
@@ -347,7 +430,7 @@ def update_figure(state_values,month_values):
                 name = column,
                 mode='lines',
                 opacity=0.8,
-                hovertemplate = '<extra></extra>State: ' + column + '<br>Date: ' + dff.index.strftime('%m/%d') +'<br>Value: %{y:,}'
+                hovertemplate = '<extra></extra>State: ' + column + '<br>Date: ' + dff.index.strftime('%m/%d') +'<br>Value: %{y:.1f}'
             )
         )
       
@@ -379,29 +462,49 @@ def update_figure(state_values,month_values):
     return fig
 
 
-# In[15]:
+# In[12]:
 
+
+#===========================================
+# Total Number of Deaths
+#===========================================
 
 @app.callback(
     Output('totdeaths', 'figure'),
     [Input('state-dropdown', 'value')],
+    [Input('normalization-dropdown', 'value')],
     [Input('slider', 'value')])
     
-# STEP 5: Update Figure
-def update_figure(state_values,month_values):
+# Update Figure
+def update_figure(state_values,normalization_values,month_values):
 
     if state_values is None:
         dff = df.copy()
+        
+        # Check for normalization
+        if normalization_values=='No':
+            dff['total_deaths'] = 1e+4*dff['total_deaths']/dff['POP'] 
+            
         dff.drop(dff[dff['state'] == "All States"].index, inplace=True)
-        dff = dff.pivot(index='date',columns='state',values='death')        
+        dff = dff.pivot(index='date',columns='state',values='total_deaths')        
     elif state_values[0]=="All States":
         dff = df.copy()
+        
+        # Check for normalization
+        if normalization_values=='No':
+            dff['total_deaths'] = 1e+4*dff['total_deaths']/dff['POP'] 
+            
         dff.drop(dff[dff['state'] == "All States"].index, inplace=True)
-        dff = dff.pivot(index='date',columns='state',values='death')
+        dff = dff.pivot(index='date',columns='state',values='total_deaths')
     else:
         if not isinstance(state_values, list): state_values = [state_values]
         temp = df.loc[df['state'].isin(state_values)]
-        dff = temp.pivot(index='date',columns='state',values='death')
+        
+        # Check for normalization
+        if normalization_values=='No':
+            temp['total_deaths'] = 1e+4*temp['total_deaths']/temp['POP'] 
+            
+        dff = temp.pivot(index='date',columns='state',values='total_deaths')
     
     # Filter by months
     dff = dff[(dff.index >= dt.datetime.strptime(months[month_values[0]],"%B %Y")) & (dff.index <= dt.datetime.strptime(months[month_values[1]],"%B %Y"))]
@@ -447,7 +550,15 @@ def update_figure(state_values,month_values):
     return fig
 
 
-# In[16]:
+# In[ ]:
+
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(debug=True, use_reloader=False)  # Turn off reloader if inside Jupyter
+
+
+# In[ ]:
+
+
+
+
