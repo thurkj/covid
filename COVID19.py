@@ -683,6 +683,5 @@ def update_figure(state_values,normalization_values,month_values):
 
 
 if __name__ == '__main__':
-    app.run_server(debug=True, use_reloader=False)  # Turn off reloader if inside Jupyter
-    #app.run_server(debug=True)
-
+    #app.run_server(debug=True, use_reloader=False)  # Turn off reloader if inside Jupyter
+    app.run_server(debug=True)
